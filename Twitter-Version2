@@ -1,0 +1,233 @@
+import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.CopyOnWriteArrayList;
+
+// ─── base class for any user in any platform ─────────────────
+abstract class BasicUser {
+    private int userId;
+    private String userName;
+
+    public BasicUser(int userId, String userName) {
+        this.userId   = userId;
+        this.userName = userName;
+    }
+
+    public int getUserId() { return userId; }
+    public String getUserName() { return userName; }
+}
+
+// ─── Twitter specific user with extra profile data ────────────
+class User extends BasicUser {
+    private int likesReceived = 0;
+    private String bio;
+    private int followersCount = 0;
+    private int followeesCount = 0;
+    private int totalTweets = 0;
+
+    public User(int userId, String userName, String bio) {
+        super(userId, userName);
+        this.bio = bio;
+    }
+
+    // Thread-safe modifiers (Encapsulation)
+    public synchronized void incrementLikes() { this.likesReceived++; }
+    public synchronized void decrementLikes() { if(this.likesReceived > 0) this.likesReceived--; }
+    
+    public synchronized void incrementFollowers() { this.followersCount++; }
+    public synchronized void decrementFollowers() { if(this.followersCount > 0) this.followersCount--; }
+    
+    public synchronized void incrementFollowees() { this.followeesCount++; }
+    public synchronized void decrementFollowees() { if(this.followeesCount > 0) this.followeesCount--; }
+    
+    public synchronized void incrementTweets() { this.totalTweets++; }
+    public synchronized void decrementTweets() { if(this.totalTweets > 0) this.totalTweets--; }
+
+    @Override
+    public String toString() {
+        return "userId: " + getUserId() + " | name: " + getUserName() + 
+               " | bio: " + bio + " | likesReceived: " + likesReceived +
+               " | followers: " + followersCount + " | following: " + followeesCount +
+               " | totalTweets: " + totalTweets;
+    }
+}
+
+// ─── common follow/unfollow logic ────
+abstract class Subscribers {
+    // Thread-safe map of Sets
+    protected ConcurrentHashMap<Integer, Set<Integer>> storeSubscribers;
+
+    public Subscribers() {
+        this.storeSubscribers = new ConcurrentHashMap<>();
+    }
+
+    public void follow(int followerId, int followeeId) {
+        if(followerId == followeeId) return;
+        
+        // ConcurrentHashMap.newKeySet() creates a thread-safe Set
+        storeSubscribers.putIfAbsent(followerId, ConcurrentHashMap.newKeySet());
+        storeSubscribers.get(followerId).add(followeeId);
+    }
+
+    public void unfollow(int followerId, int followeeId) {
+        if(storeSubscribers.containsKey(followerId)) {
+            storeSubscribers.get(followerId).remove(followeeId);
+        }
+    }
+}
+
+// ─── base class for any content ──────────
+abstract class Content {
+    private int likes = 0;
+    private int timeStamp = 0;
+    private boolean isDeleted = false; // Soft Delete flag!
+
+    public Content(int timeStamp) {
+        this.timeStamp = timeStamp;
+    }
+
+    public synchronized void addLike() { this.likes++; }
+    public synchronized void removeLike() { if(this.likes > 0) this.likes--; }
+    
+    public int getLikes() { return likes; }
+    public int getTimeStamp() { return timeStamp; }
+    
+    public boolean isDeleted() { return isDeleted; }
+    public void markDeleted() { this.isDeleted = true; }
+}
+
+// ─── a single tweet ───────
+class Tweet extends Content {
+    private int userId;
+    private int tweetId;
+    private String content;
+
+    public Tweet(int userId, int tweetId, String content, int timeStamp) {
+        super(timeStamp);
+        this.userId = userId;
+        this.tweetId = tweetId;
+        this.content = content;
+    }
+
+    public int getTweetId() { return tweetId; }
+    public int getUserId() { return userId; }
+
+    public String toPublicString() {
+        return "tweetId: " + tweetId + " | content: " + content + " | likes: " + getLikes();
+    }
+}
+
+// ─── main Twitter class ─────────────
+class Twitter extends Subscribers {
+    private ConcurrentHashMap<Integer, User> storeUsers;
+    
+    // Maps userId -> List of their tweets (Thread safe list for reading feeds)
+    private ConcurrentHashMap<Integer, List<Tweet>> storeTweets;
+    
+    // NEW: Global map for O(1) direct tweet access!
+    private ConcurrentHashMap<Integer, Tweet> globalTweetMap; 
+
+    private int globalTimeStamp = 0;
+
+    public Twitter() {
+        this.storeUsers = new ConcurrentHashMap<>();
+        this.storeTweets = new ConcurrentHashMap<>();
+        this.globalTweetMap = new ConcurrentHashMap<>();
+    }
+
+    public void registerUser(int userId, String userName, String bio) {
+        storeUsers.putIfAbsent(userId, new User(userId, userName, bio));
+    }
+
+    public User getUserProfile(int userId) {
+        return storeUsers.get(userId);
+    }
+
+    public synchronized void postTweet(int userId, int tweetId, String content) {
+        if(!storeUsers.containsKey(userId)) return;
+        
+        globalTimeStamp++;
+        Tweet tweet = new Tweet(userId, tweetId, content, globalTimeStamp);
+
+        // CopyOnWriteArrayList is thread-safe for reading feeds concurrently
+        storeTweets.putIfAbsent(userId, new CopyOnWriteArrayList<>());
+        
+        storeTweets.get(userId).add(tweet);
+        globalTweetMap.put(tweetId, tweet); // Add to global map for O(1) lookups
+        
+        storeUsers.get(userId).incrementTweets();
+    }
+
+    public void like(int userId, int tweetId) {
+        Tweet t = globalTweetMap.get(tweetId);
+        // O(1) lookup! Check if tweet exists and isn't deleted
+        if(t != null && !t.isDeleted()) {
+            t.addLike();
+            storeUsers.get(t.getUserId()).incrementLikes(); // reward the author
+        }
+    }
+
+    public void unlike(int userId, int tweetId) {
+        Tweet t = globalTweetMap.get(tweetId);
+        if(t != null && !t.isDeleted()) {
+            t.removeLike();
+            storeUsers.get(t.getUserId()).decrementLikes();
+        }
+    }
+
+    @Override
+    public void follow(int followerId, int followeeId) {
+        if(storeUsers.containsKey(followerId) && storeUsers.containsKey(followeeId)) {
+            super.follow(followerId, followeeId);
+            storeUsers.get(followeeId).incrementFollowers();
+            storeUsers.get(followerId).incrementFollowees();
+        }
+    }
+
+    @Override
+    public void unfollow(int followerId, int followeeId) {
+        if(storeUsers.containsKey(followerId)) {
+            super.unfollow(followerId, followeeId);
+            storeUsers.get(followeeId).decrementFollowers();
+            storeUsers.get(followerId).decrementFollowees();
+        }
+    }
+
+    public void deleteTweet(int userId, int tweetId) {
+        Tweet t = globalTweetMap.get(tweetId);
+        
+        // O(1) Soft Deletion. We don't remove it from the array, we just hide it!
+        if(t != null && t.getUserId() == userId && !t.isDeleted()) {
+            t.markDeleted();
+            storeUsers.get(userId).decrementTweets();
+            // In a real system, you might also decrement total user likes here
+        }
+    }
+
+    public List<Integer> getTopTweets(int userId, int count) {
+        PriorityQueue<Tweet> pq = new PriorityQueue<>((a, b) -> b.getTimeStamp() - a.getTimeStamp());
+
+        // Add own tweets
+        if(storeTweets.containsKey(userId)) {
+            for(Tweet t : storeTweets.get(userId)) {
+                if(!t.isDeleted()) pq.add(t); // Ignore soft-deleted tweets
+            }
+        }
+
+        // Add followees tweets
+        if(storeSubscribers.containsKey(userId)) {
+            for(int followeeId : storeSubscribers.get(userId)) {
+                if(storeTweets.containsKey(followeeId)) {
+                    for(Tweet t : storeTweets.get(followeeId)) {
+                        if(!t.isDeleted()) pq.add(t);
+                    }
+                }
+            }
+        }
+
+        List<Integer> topResults = new ArrayList<>();
+        while(!pq.isEmpty() && topResults.size() < count) {
+            topResults.add(pq.poll().getTweetId());
+        }
+        return topResults;
+    }
+}
