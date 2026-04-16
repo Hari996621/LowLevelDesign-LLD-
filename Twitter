@@ -1,5 +1,6 @@
 import java.util.*;
 
+// ─── base class for any user in any platform ─────────────────
 abstract class BasicUser {
     int userId;
     String userName;
@@ -10,6 +11,7 @@ abstract class BasicUser {
     }
 }
 
+// ─── Twitter specific user with extra profile data ────────────
 class User extends BasicUser {
     int likes          = 0;
     String Bio;
@@ -22,6 +24,7 @@ class User extends BasicUser {
         this.Bio = Bio;
     }
 
+    // show user profile nicely when printed
     @Override
     public String toString() {
         return "userId: "          + userId +
@@ -34,7 +37,9 @@ class User extends BasicUser {
     }
 }
 
+// ─── common follow/unfollow logic for any social platform ────
 abstract class Subscribers {
+    // who follows whom: userId → set of people they follow
     HashMap<Integer, Set<Integer>> storeSubscribers;
 
     public Subscribers() {
@@ -42,7 +47,10 @@ abstract class Subscribers {
     }
 
     public void follow(int followerId, int followeeId) {
+        // cannot follow yourself
         if(followerId == followeeId) return;
+
+        // create empty set if first time following someone
         if(!storeSubscribers.containsKey(followerId)) {
             storeSubscribers.put(followerId, new HashSet<>());
         }
@@ -58,6 +66,7 @@ abstract class Subscribers {
     }
 }
 
+// ─── base class for any content — tweet, post, video ──────────
 abstract class Content {
     int like      = 0;
     int timeStamp = 0;
@@ -70,18 +79,20 @@ abstract class Content {
     public void unlike() { if(like > 0) like--; }
 }
 
+// ─── a single tweet — extends Content for common fields ───────
 class Tweet extends Content {
     int    userId;
     int    tweetId;
     String content;
 
     public Tweet(int userId, int tweetId, String content, int timeStamp) {
-        super(timeStamp);
+        super(timeStamp);  // sends timeStamp to Content
         this.userId  = userId;
         this.tweetId = tweetId;
         this.content = content;
     }
 
+    // full tweet details — for internal use
     @Override
     public String toString() {
         return "tweetId: "    + tweetId +
@@ -91,6 +102,7 @@ class Tweet extends Content {
                " | likes: "  + like;
     }
 
+    // public view — hides timestamp and userId for privacy
     public String toPublicString() {
         return "tweetId: " + tweetId +
                " | content: " + content +
@@ -98,14 +110,21 @@ class Tweet extends Content {
     }
 }
 
+// ─── contract: anything Deletable must implement these ───────
 interface Deletable {
     void deleteUser(int userId);
     void deleteTweet(int userId, int tweetId);
 }
 
+// ─── main Twitter class — coordinates everything ─────────────
 class Twitter extends Subscribers implements Deletable {
-    HashMap<Integer, User>             storeUsers;
+    // all users: userId → User object
+    HashMap<Integer, User> storeUsers;
+
+    // all tweets: userId → their list of tweets
     HashMap<Integer, ArrayList<Tweet>> storeTweets;
+
+    // global counter — increments with every tweet
     int timeStamp = 0;
 
     public Twitter() {
@@ -113,6 +132,7 @@ class Twitter extends Subscribers implements Deletable {
         this.storeTweets = new HashMap<>();
     }
 
+    // create new user and store in map
     public void registerUser(int userId, String userName, String bio) {
         if(!storeUsers.containsKey(userId)) {
             storeUsers.put(userId, new User(userId, userName, bio));
@@ -122,11 +142,13 @@ class Twitter extends Subscribers implements Deletable {
         }
     }
 
+    // return user object — null if not found
     public User getUserProfile(int userId) {
         if(storeUsers.containsKey(userId)) return storeUsers.get(userId);
         return null;
     }
 
+    // create new tweet, increment timestamp, update user counts
     public void postTweet(int userId, int tweetId, String content) {
         if(!storeUsers.containsKey(userId)) {
             System.out.println("User not found!");
@@ -134,6 +156,8 @@ class Twitter extends Subscribers implements Deletable {
         }
         timeStamp++;
         Tweet tweet = new Tweet(userId, tweetId, content, timeStamp);
+
+        // first tweet? create empty list first
         if(!storeTweets.containsKey(userId)) {
             storeTweets.put(userId, new ArrayList<>());
         }
@@ -142,6 +166,7 @@ class Twitter extends Subscribers implements Deletable {
         System.out.println("Tweeted successfully!");
     }
 
+    // find tweet and increment likes on both tweet and user
     public void like(int userId, int tweetId) {
         if(storeTweets.containsKey(userId)) {
             for(Tweet t : storeTweets.get(userId)) {
@@ -155,6 +180,7 @@ class Twitter extends Subscribers implements Deletable {
         }
     }
 
+    // decrement likes — never go below 0
     public void unlike(int userId, int tweetId) {
         if(storeTweets.containsKey(userId)) {
             for(Tweet t : storeTweets.get(userId)) {
@@ -169,6 +195,7 @@ class Twitter extends Subscribers implements Deletable {
         }
     }
 
+    // override follow to add user existence check + count updates
     @Override
     public void follow(int followerId, int followeeId) {
         if(!storeUsers.containsKey(followerId) ||
@@ -176,11 +203,13 @@ class Twitter extends Subscribers implements Deletable {
             System.out.println("User not found!");
             return;
         }
+        // parent handles the actual storing
         super.follow(followerId, followeeId);
         storeUsers.get(followeeId).followersCount++;
         storeUsers.get(followerId).followeesCount++;
     }
 
+    // override unfollow with user check + count updates
     @Override
     public void unfollow(int followerId, int followeeId) {
         if(!storeUsers.containsKey(followerId)) {
@@ -192,6 +221,7 @@ class Twitter extends Subscribers implements Deletable {
         storeUsers.get(followerId).followeesCount--;
     }
 
+    // delete a tweet and update user counts
     @Override
     public void deleteTweet(int userId, int tweetId) {
         if(!storeTweets.containsKey(userId)) {
@@ -199,6 +229,7 @@ class Twitter extends Subscribers implements Deletable {
             return;
         }
 
+        // find the tweet first — do not remove inside loop
         Tweet toDelete = null;
         for(Tweet t : storeTweets.get(userId)) {
             if(t.tweetId == tweetId) {
@@ -210,6 +241,7 @@ class Twitter extends Subscribers implements Deletable {
         if(toDelete != null) {
             storeTweets.get(userId).remove(toDelete);
             storeUsers.get(userId).totalTweets--;
+            // subtract likes that this tweet had
             storeUsers.get(userId).likes -= toDelete.like;
             System.out.println("Tweet deleted successfully!");
         } else {
@@ -222,13 +254,16 @@ class Twitter extends Subscribers implements Deletable {
         // to be implemented — cascading delete
     }
 
+    // search tweets by userId — returns all their tweets
     public ArrayList<Tweet> searchTweets(int userId) {
         if(storeTweets.containsKey(userId)) {
             return storeTweets.get(userId);
         }
-        return new ArrayList<>();
+        return new ArrayList<>();  // empty list — safer than null
     }
 
+    // search tweets by userName — overloaded version
+    // finds userId first, then delegates to int version
     public ArrayList<Tweet> searchTweets(String userName) {
         for(User u : storeUsers.values()) {
             if(u.userName.equals(userName)) {
@@ -238,18 +273,23 @@ class Twitter extends Subscribers implements Deletable {
         return new ArrayList<>();
     }
 
+    // get top N tweets from user's feed (own + followees)
+    // sorted by timestamp — most recent first
     public ArrayList<Integer> getTopTweets(int userId, int count) {
+        // max heap — biggest timestamp comes out first
         PriorityQueue<Tweet> pq = new PriorityQueue<>(
             (a, b) -> b.timeStamp - a.timeStamp
         );
         ArrayList<Integer> topResults = new ArrayList<>();
 
+        // add user's own tweets
         if(storeTweets.containsKey(userId)) {
             for(Tweet t : storeTweets.get(userId)) {
                 pq.add(t);
             }
         }
 
+        // add tweets from everyone user follows
         if(storeSubscribers.containsKey(userId)) {
             for(int id : storeSubscribers.get(userId)) {
                 if(storeTweets.containsKey(id)) {
@@ -260,6 +300,7 @@ class Twitter extends Subscribers implements Deletable {
             }
         }
 
+        // poll top N tweets
         for(int i = 0; i < count && !pq.isEmpty(); i++) {
             topResults.add(pq.poll().tweetId);
         }
@@ -268,47 +309,59 @@ class Twitter extends Subscribers implements Deletable {
     }
 }
 
+// ─── main — where we test everything ─────────────────────────
 public class Main {
     public static void main(String[] args) {
         Twitter twitter = new Twitter();
 
+        // create users
         twitter.registerUser(1, "hari",    "software developer");
         twitter.registerUser(2, "praveen", "singer");
         twitter.registerUser(3, "harshu",  "data analyst");
         twitter.registerUser(4, "chintu",  "mechanical engineer");
         twitter.registerUser(5, "krishna", "app developer");
 
+        // follow each other
         twitter.follow(1, 2);
         twitter.follow(1, 3);
 
+        // post some tweets
         twitter.postTweet(1, 101, "Hello Twitter!");
         twitter.postTweet(2, 102, "Music is life!");
         twitter.postTweet(1, 103, "Learning Java!");
 
+        // like tweet twice
         twitter.like(1, 101);
         twitter.like(1, 101);
 
+        // check profiles
         System.out.println(twitter.getUserProfile(1));
         System.out.println(twitter.getUserProfile(2));
 
+        // unfollow
         twitter.unfollow(1, 2);
         System.out.println(twitter.getUserProfile(1));
 
+        // unlike
         twitter.unlike(1, 101);
         System.out.println(twitter.getUserProfile(1));
 
+        // delete tweet
         twitter.deleteTweet(1, 101);
         System.out.println(twitter.getUserProfile(1));
 
+        // get feed
         ArrayList<Integer> feed = twitter.getTopTweets(1, 10);
         System.out.println("Feed: " + feed);
 
+        // search by userId
         System.out.println("\n--- Search Tweets by userId ---");
-        ArrayList<Tweet> results = twitter.searchTweets(1);
-        for(Tweet t : results) System.out.println(t.toPublicString());
+        for(Tweet t : twitter.searchTweets(1)) 
+            System.out.println(t.toPublicString());
 
+        // search by userName
         System.out.println("\n--- Search Tweets by userName ---");
-        ArrayList<Tweet> results2 = twitter.searchTweets("hari");
-        for(Tweet t : results2) System.out.println(t.toPublicString());
+        for(Tweet t : twitter.searchTweets("hari")) 
+            System.out.println(t.toPublicString());
     }
 }
