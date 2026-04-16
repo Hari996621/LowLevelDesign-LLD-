@@ -1,0 +1,314 @@
+import java.util.*;
+
+abstract class BasicUser {
+    int userId;
+    String userName;
+
+    public BasicUser(int userId, String userName) {
+        this.userId   = userId;
+        this.userName = userName;
+    }
+}
+
+class User extends BasicUser {
+    int likes          = 0;
+    String Bio;
+    int followersCount = 0;
+    int followeesCount = 0;
+    int totalTweets    = 0;
+
+    public User(int userId, String userName, String Bio) {
+        super(userId, userName);
+        this.Bio = Bio;
+    }
+
+    @Override
+    public String toString() {
+        return "userId: "          + userId +
+               " | name: "        + userName +
+               " | bio: "         + Bio +
+               " | likes: "       + likes +
+               " | followers: "   + followersCount +
+               " | following: "   + followeesCount +
+               " | totalTweets: " + totalTweets;
+    }
+}
+
+abstract class Subscribers {
+    HashMap<Integer, Set<Integer>> storeSubscribers;
+
+    public Subscribers() {
+        this.storeSubscribers = new HashMap<>();
+    }
+
+    public void follow(int followerId, int followeeId) {
+        if(followerId == followeeId) return;
+        if(!storeSubscribers.containsKey(followerId)) {
+            storeSubscribers.put(followerId, new HashSet<>());
+        }
+        storeSubscribers.get(followerId).add(followeeId);
+        System.out.println("Followed successfully!");
+    }
+
+    public void unfollow(int followerId, int followeeId) {
+        if(storeSubscribers.containsKey(followerId)) {
+            storeSubscribers.get(followerId).remove(followeeId);
+            System.out.println("Unfollowed successfully!");
+        }
+    }
+}
+
+abstract class Content {
+    int like      = 0;
+    int timeStamp = 0;
+
+    public Content(int timeStamp) {
+        this.timeStamp = timeStamp;
+    }
+
+    public void like()   { like++; }
+    public void unlike() { if(like > 0) like--; }
+}
+
+class Tweet extends Content {
+    int    userId;
+    int    tweetId;
+    String content;
+
+    public Tweet(int userId, int tweetId, String content, int timeStamp) {
+        super(timeStamp);
+        this.userId  = userId;
+        this.tweetId = tweetId;
+        this.content = content;
+    }
+
+    @Override
+    public String toString() {
+        return "tweetId: "    + tweetId +
+               " | userId: " + userId +
+               " | content: "+ content +
+               " | time: "   + timeStamp +
+               " | likes: "  + like;
+    }
+
+    public String toPublicString() {
+        return "tweetId: " + tweetId +
+               " | content: " + content +
+               " | likes: " + like;
+    }
+}
+
+interface Deletable {
+    void deleteUser(int userId);
+    void deleteTweet(int userId, int tweetId);
+}
+
+class Twitter extends Subscribers implements Deletable {
+    HashMap<Integer, User>             storeUsers;
+    HashMap<Integer, ArrayList<Tweet>> storeTweets;
+    int timeStamp = 0;
+
+    public Twitter() {
+        this.storeUsers  = new HashMap<>();
+        this.storeTweets = new HashMap<>();
+    }
+
+    public void registerUser(int userId, String userName, String bio) {
+        if(!storeUsers.containsKey(userId)) {
+            storeUsers.put(userId, new User(userId, userName, bio));
+            System.out.println("Profile created successfully!");
+        } else {
+            System.out.println("User already exists!");
+        }
+    }
+
+    public User getUserProfile(int userId) {
+        if(storeUsers.containsKey(userId)) return storeUsers.get(userId);
+        return null;
+    }
+
+    public void postTweet(int userId, int tweetId, String content) {
+        if(!storeUsers.containsKey(userId)) {
+            System.out.println("User not found!");
+            return;
+        }
+        timeStamp++;
+        Tweet tweet = new Tweet(userId, tweetId, content, timeStamp);
+        if(!storeTweets.containsKey(userId)) {
+            storeTweets.put(userId, new ArrayList<>());
+        }
+        storeTweets.get(userId).add(tweet);
+        storeUsers.get(userId).totalTweets++;
+        System.out.println("Tweeted successfully!");
+    }
+
+    public void like(int userId, int tweetId) {
+        if(storeTweets.containsKey(userId)) {
+            for(Tweet t : storeTweets.get(userId)) {
+                if(t.tweetId == tweetId) {
+                    t.like();
+                    storeUsers.get(userId).likes++;
+                    System.out.println("Liked!");
+                    return;
+                }
+            }
+        }
+    }
+
+    public void unlike(int userId, int tweetId) {
+        if(storeTweets.containsKey(userId)) {
+            for(Tweet t : storeTweets.get(userId)) {
+                if(t.tweetId == tweetId) {
+                    t.unlike();
+                    if(storeUsers.get(userId).likes > 0)
+                        storeUsers.get(userId).likes--;
+                    System.out.println("Unliked!");
+                    return;
+                }
+            }
+        }
+    }
+
+    @Override
+    public void follow(int followerId, int followeeId) {
+        if(!storeUsers.containsKey(followerId) ||
+           !storeUsers.containsKey(followeeId)) {
+            System.out.println("User not found!");
+            return;
+        }
+        super.follow(followerId, followeeId);
+        storeUsers.get(followeeId).followersCount++;
+        storeUsers.get(followerId).followeesCount++;
+    }
+
+    @Override
+    public void unfollow(int followerId, int followeeId) {
+        if(!storeUsers.containsKey(followerId)) {
+            System.out.println("User not found!");
+            return;
+        }
+        super.unfollow(followerId, followeeId);
+        storeUsers.get(followeeId).followersCount--;
+        storeUsers.get(followerId).followeesCount--;
+    }
+
+    @Override
+    public void deleteTweet(int userId, int tweetId) {
+        if(!storeTweets.containsKey(userId)) {
+            System.out.println("No tweets found!");
+            return;
+        }
+
+        Tweet toDelete = null;
+        for(Tweet t : storeTweets.get(userId)) {
+            if(t.tweetId == tweetId) {
+                toDelete = t;
+                break;
+            }
+        }
+
+        if(toDelete != null) {
+            storeTweets.get(userId).remove(toDelete);
+            storeUsers.get(userId).totalTweets--;
+            storeUsers.get(userId).likes -= toDelete.like;
+            System.out.println("Tweet deleted successfully!");
+        } else {
+            System.out.println("Tweet not found!");
+        }
+    }
+
+    @Override
+    public void deleteUser(int userId) {
+        // to be implemented — cascading delete
+    }
+
+    public ArrayList<Tweet> searchTweets(int userId) {
+        if(storeTweets.containsKey(userId)) {
+            return storeTweets.get(userId);
+        }
+        return new ArrayList<>();
+    }
+
+    public ArrayList<Tweet> searchTweets(String userName) {
+        for(User u : storeUsers.values()) {
+            if(u.userName.equals(userName)) {
+                return searchTweets(u.userId);
+            }
+        }
+        return new ArrayList<>();
+    }
+
+    public ArrayList<Integer> getTopTweets(int userId, int count) {
+        PriorityQueue<Tweet> pq = new PriorityQueue<>(
+            (a, b) -> b.timeStamp - a.timeStamp
+        );
+        ArrayList<Integer> topResults = new ArrayList<>();
+
+        if(storeTweets.containsKey(userId)) {
+            for(Tweet t : storeTweets.get(userId)) {
+                pq.add(t);
+            }
+        }
+
+        if(storeSubscribers.containsKey(userId)) {
+            for(int id : storeSubscribers.get(userId)) {
+                if(storeTweets.containsKey(id)) {
+                    for(Tweet t : storeTweets.get(id)) {
+                        pq.add(t);
+                    }
+                }
+            }
+        }
+
+        for(int i = 0; i < count && !pq.isEmpty(); i++) {
+            topResults.add(pq.poll().tweetId);
+        }
+
+        return topResults;
+    }
+}
+
+public class Main {
+    public static void main(String[] args) {
+        Twitter twitter = new Twitter();
+
+        twitter.registerUser(1, "hari",    "software developer");
+        twitter.registerUser(2, "praveen", "singer");
+        twitter.registerUser(3, "harshu",  "data analyst");
+        twitter.registerUser(4, "chintu",  "mechanical engineer");
+        twitter.registerUser(5, "krishna", "app developer");
+
+        twitter.follow(1, 2);
+        twitter.follow(1, 3);
+
+        twitter.postTweet(1, 101, "Hello Twitter!");
+        twitter.postTweet(2, 102, "Music is life!");
+        twitter.postTweet(1, 103, "Learning Java!");
+
+        twitter.like(1, 101);
+        twitter.like(1, 101);
+
+        System.out.println(twitter.getUserProfile(1));
+        System.out.println(twitter.getUserProfile(2));
+
+        twitter.unfollow(1, 2);
+        System.out.println(twitter.getUserProfile(1));
+
+        twitter.unlike(1, 101);
+        System.out.println(twitter.getUserProfile(1));
+
+        twitter.deleteTweet(1, 101);
+        System.out.println(twitter.getUserProfile(1));
+
+        ArrayList<Integer> feed = twitter.getTopTweets(1, 10);
+        System.out.println("Feed: " + feed);
+
+        System.out.println("\n--- Search Tweets by userId ---");
+        ArrayList<Tweet> results = twitter.searchTweets(1);
+        for(Tweet t : results) System.out.println(t.toPublicString());
+
+        System.out.println("\n--- Search Tweets by userName ---");
+        ArrayList<Tweet> results2 = twitter.searchTweets("hari");
+        for(Tweet t : results2) System.out.println(t.toPublicString());
+    }
+}
